@@ -78,10 +78,14 @@ export function parseResult(raw, isSprint = false) {
 
 // ── Anthropic chat (moved here to centralise all external API calls) ──────────
 export async function sendChatMessage({ messages, systemPrompt, maxTokens = 400 }) {
+  const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error("VITE_ANTHROPIC_API_KEY is not set. Copy .env.example to .env and add your key.");
+
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      "x-api-key": apiKey,
       "anthropic-version": "2023-06-01",
       "anthropic-beta": "prompt-caching-2024-07-31",
     },
