@@ -4,19 +4,20 @@ import { sendChatMessage } from "../api/openf1";
 import { drawRealTelemetry, formatLapTime } from "../canvas/renderer";
 
 // ─── LapMapTab ────────────────────────────────────────────────────────────────
-// Fetches the real fastest lap from the 2026 Australian GP via OpenF1, then
-// renders GPS-accurate speed/throttle/brake telemetry on an HTML5 canvas.
+// Fetches the real fastest lap from the most recently completed 2026 Race
+// session via OpenF1, then renders GPS-accurate speed/throttle/brake telemetry
+// on an HTML5 canvas.
 
 const OVERLAY_OPTIONS = ["speed", "throttle", "brake"];
 
 export default function LapMapTab() {
   const canvasRef = useRef(null);
-  const [status,   setStatus]  = useState("idle"); // idle | loading | done | error
-  const [lapInfo,  setLapInfo] = useState(null);
-  const [telemetry,setTelemetry] = useState(null);
-  const [aiText,   setAiText]  = useState("");
-  const [aiLoad,   setAiLoad]  = useState(false);
-  const [overlay,  setOverlay] = useState("speed");
+  const [status,    setStatus]   = useState("idle"); // idle | loading | done | error
+  const [lapInfo,   setLapInfo]  = useState(null);
+  const [telemetry, setTelemetry]= useState(null);
+  const [aiText,    setAiText]   = useState("");
+  const [aiLoad,    setAiLoad]   = useState(false);
+  const [overlay,   setOverlay]  = useState("speed");
 
   // Redraw whenever telemetry or selected overlay changes
   useEffect(() => {
@@ -31,26 +32,37 @@ export default function LapMapTab() {
     setTelemetry(null);
     setAiText("");
     try {
-      // 1. Resolve session key for 2026 Australian GP
-      const sessRes  = await fetch(`${OPENF1_BASE}/sessions?year=2026&country_name=Australia&session_name=Race`);
-      const sessions = await sessRes.json();
-      if (!sessions.length) throw new Error("No Australian GP session found");
-      const sessionKey = sessions[0].session_key;
+      // 1. Find the most recently completed 2026 Race session
+      const sessRes  = await fetch(`${OPENF1_BASE}/sessions?year=2026&session_name=Race`, { cache: "no-store" });
+      if (!sessRes.ok) throw new Error("OpenF1 unavailable");
+      const sessJson = await sessRes.json();
+      if (!Array.isArray(sessJson)) throw new Error("OpenF1 blocked — live session in progress");
+      const now      = Date.now();
+      const completed = sessJson
+        .filter(s => new Date(s.date_end).getTime() < now)
+        .sort((a, b) => new Date(b.date_end) - new Date(a.date_end));
+      if (!completed.length) throw new Error("No completed 2026 Race sessions found");
+      const session    = completed[0];
+      const sessionKey = session.session_key;
+      const raceName   = session.meeting_name || session.location || "Unknown GP";
+      const raceYear   = new Date(session.date_end).getFullYear();
 
       // 2. Find the overall fastest lap
-      const lapsRes  = await fetch(`${OPENF1_BASE}/laps?session_key=${sessionKey}`);
-      const laps     = await lapsRes.json();
-      const valid    = laps.filter(l => l.lap_duration && l.lap_duration > 60 && l.date_start);
+      const lapsRes = await fetch(`${OPENF1_BASE}/laps?session_key=${sessionKey}`, { cache: "no-store" });
+      if (!lapsRes.ok) throw new Error("OpenF1 unavailable for laps");
+      const laps    = await lapsRes.json();
+      if (!Array.isArray(laps)) throw new Error("OpenF1 blocked — live session in progress");
+      const valid   = laps.filter(l => l.lap_duration && l.lap_duration > 60 && l.date_start);
       if (!valid.length) throw new Error("No valid laps found");
-      const fastest  = valid.reduce((a, b) => a.lap_duration < b.lap_duration ? a : b);
+      const fastest = valid.reduce((a, b) => a.lap_duration < b.lap_duration ? a : b);
 
       // 3. Driver info
-      const drvRes  = await fetch(`${OPENF1_BASE}/drivers?session_key=${sessionKey}&driver_number=${fastest.driver_number}`);
+      const drvRes = await fetch(`${OPENF1_BASE}/drivers?session_key=${sessionKey}&driver_number=${fastest.driver_number}`, { cache: "no-store" });
       const drivers = await drvRes.json();
       const driver  = drivers[0] || { full_name: `Driver #${fastest.driver_number}`, name_acronym: "??", team_name: "Unknown" };
 
       const lapStart = fastest.date_start;
-      const lapEnd   = new Date(new Date(lapStart).getTime() + fastest.lap_duration * 1000 + 5000).toISOString();
+      const lapEnd   = new Date(new Date(lapStart).getTime() + fastest.lap_duration * 1000 + 10000).toISOString();
 
       setLapInfo({
         driver:    driver.full_name,
@@ -62,16 +74,19 @@ export default function LapMapTab() {
         sessionKey,
         lapStart,
         lapEnd,
-        sectors: [fastest.duration_sector_1, fastest.duration_sector_2, fastest.duration_sector_3],
+        sectors:   [fastest.duration_sector_1, fastest.duration_sector_2, fastest.duration_sector_3],
+        raceName,
+        raceYear,
       });
 
       // 4. Fetch car data + GPS in parallel
       const [carRes, locRes] = await Promise.all([
-        fetch(`${OPENF1_BASE}/car_data?session_key=${sessionKey}&driver_number=${fastest.driver_number}&date>=${lapStart}&date<=${lapEnd}`),
-        fetch(`${OPENF1_BASE}/location?session_key=${sessionKey}&driver_number=${fastest.driver_number}&date>=${lapStart}&date<=${lapEnd}`),
+        fetch(`${OPENF1_BASE}/car_data?session_key=${sessionKey}&driver_number=${fastest.driver_number}&date>=${lapStart}&date<=${lapEnd}`, { cache: "no-store" }),
+        fetch(`${OPENF1_BASE}/location?session_key=${sessionKey}&driver_number=${fastest.driver_number}&date>=${lapStart}&date<=${lapEnd}`, { cache: "no-store" }),
       ]);
       const carData = await carRes.json();
       const locData = await locRes.json();
+      if (!Array.isArray(carData) || !Array.isArray(locData)) throw new Error("OpenF1 blocked — live session in progress");
       if (!carData.length || !locData.length) throw new Error("No telemetry data for this lap");
 
       // 5. Merge by nearest timestamp
@@ -101,18 +116,18 @@ export default function LapMapTab() {
   async function fetchDebrief() {
     if (!lapInfo || !telemetry) return;
     setAiLoad(true);
-    const speeds      = telemetry.map(p => p.speed);
-    const vMin        = Math.round(Math.min(...speeds));
-    const vMax        = Math.round(Math.max(...speeds));
-    const vAvg        = Math.round(speeds.reduce((a, b) => a + b, 0) / speeds.length);
-    const heavyBrakes = telemetry.filter(p => p.brake > 60).length;
-    const fullThrottle= telemetry.filter(p => p.throttle > 80).length;
-    const pct         = v => ((v / telemetry.length) * 100).toFixed(0) + "%";
+    const speeds       = telemetry.map(p => p.speed);
+    const vMin         = Math.round(Math.min(...speeds));
+    const vMax         = Math.round(Math.max(...speeds));
+    const vAvg         = Math.round(speeds.reduce((a, b) => a + b, 0) / speeds.length);
+    const heavyBrakes  = telemetry.filter(p => p.brake > 60).length;
+    const fullThrottle = telemetry.filter(p => p.throttle > 80).length;
+    const pct          = v => ((v / telemetry.length) * 100).toFixed(0) + "%";
     try {
       const text = await sendChatMessage({
         messages: [{
           role: "user",
-          content: `REAL FASTEST LAP TELEMETRY — 2026 Australian GP\nDriver: ${lapInfo.driver} (${lapInfo.team})\nLap: ${lapInfo.lapNum} | Time: ${lapInfo.lapTime}\nReal OpenF1 telemetry — ${telemetry.length} data points at 3.7Hz\nSpeed: min ${vMin} km/h, max ${vMax} km/h, avg ${vAvg} km/h\nFull throttle: ${pct(fullThrottle)} of lap | Heavy braking: ${pct(heavyBrakes)} of lap\nSectors: S1=${lapInfo.sectors[0]?.toFixed(3)}s S2=${lapInfo.sectors[1]?.toFixed(3)}s S3=${lapInfo.sectors[2]?.toFixed(3)}s\nProvide a 3-sentence debrief: (1) key insight from the speed trace, (2) where lap time was made or lost, (3) one setup recommendation.`,
+          content: `REAL FASTEST LAP TELEMETRY — ${lapInfo.raceName} ${lapInfo.raceYear}\nDriver: ${lapInfo.driver} (${lapInfo.team})\nLap: ${lapInfo.lapNum} | Time: ${lapInfo.lapTime}\nReal OpenF1 telemetry — ${telemetry.length} data points at 3.7Hz\nSpeed: min ${vMin} km/h, max ${vMax} km/h, avg ${vAvg} km/h\nFull throttle: ${pct(fullThrottle)} of lap | Heavy braking: ${pct(heavyBrakes)} of lap\nSectors: S1=${lapInfo.sectors[0]?.toFixed(3)}s S2=${lapInfo.sectors[1]?.toFixed(3)}s S3=${lapInfo.sectors[2]?.toFixed(3)}s\nProvide a 3-sentence debrief: (1) key insight from the speed trace, (2) where lap time was made or lost, (3) one setup recommendation.`,
         }],
         systemPrompt: "You are a world-class F1 race engineer. Analyse real telemetry data. Be precise and technical. 3 sentences only.",
         maxTokens: 300,
@@ -139,7 +154,10 @@ export default function LapMapTab() {
       <div style={{ background: "#0d0d15", padding: "10px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, borderBottom: "1px solid #1a1a2e" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 16, letterSpacing: 4, color: "#00D2BE" }}>🗺 FASTEST LAP — REAL TELEMETRY</div>
-          <div style={{ fontFamily: "'Space Mono'", fontSize: 7, color: "#555", letterSpacing: 2 }}>OpenF1 API · GPS XY + Speed/Throttle/Brake at 3.7Hz · Albert Park 2026</div>
+          <div style={{ fontFamily: "'Space Mono'", fontSize: 7, color: "#555", letterSpacing: 2 }}>
+            OpenF1 API · GPS XY + Speed/Throttle/Brake at 3.7Hz
+            {lapInfo ? ` · ${lapInfo.raceName} ${lapInfo.raceYear}` : " · Most Recent Race"}
+          </div>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           {OVERLAY_OPTIONS.map(o => (
@@ -160,14 +178,14 @@ export default function LapMapTab() {
               ⬇ LOAD REAL TELEMETRY
             </button>
             <div style={{ fontFamily: "'Space Mono'", fontSize: 8, color: "#555", lineHeight: 1.8 }}>
-              Fetches live from OpenF1:<br />GPS coordinates · Speed · Throttle · Brake · Sector times
+              Fetches most recent completed race from OpenF1:<br />GPS coordinates · Speed · Throttle · Brake · Sector times
             </div>
           </div>
         )}
         {status === "loading" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
             {[
-              "1. Fetching 2026 Australian GP session key...",
+              "1. Fetching completed 2026 Race sessions → finding most recent...",
               "2. Scanning all laps → finding fastest lap_duration...",
               "3. Fetching driver info...",
               "4. Loading car_data (speed/throttle/brake at 3.7Hz)...",
@@ -184,7 +202,7 @@ export default function LapMapTab() {
         {status === "error" && (
           <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
             <div style={{ fontFamily: "'Space Mono'", fontSize: 9, color: "#ff4444" }}>
-              ⚠️ Failed to fetch telemetry — OpenF1 may not have 2026 Australian GP car_data yet.
+              ⚠️ Failed to fetch telemetry — OpenF1 may be blocked (live session in progress) or car_data not yet available for this race.
             </div>
             <button onClick={fetchFastestLap}
               style={{ background: "#1a1a24", border: "1px solid #ff4444", color: "#ff4444", padding: "5px 12px", cursor: "pointer", fontFamily: "'Bebas Neue',sans-serif", fontSize: 11, letterSpacing: 2, borderRadius: 3 }}>
@@ -196,7 +214,9 @@ export default function LapMapTab() {
           <>
             <div>
               <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 14, letterSpacing: 3, color: "#FFD700" }}>{lapInfo.driver?.toUpperCase()}</div>
-              <div style={{ fontFamily: "'Space Mono'", fontSize: 7, color: "#555", marginTop: 1 }}>{lapInfo.team} · Lap {lapInfo.lapNum} · Albert Park 2026</div>
+              <div style={{ fontFamily: "'Space Mono'", fontSize: 7, color: "#555", marginTop: 1 }}>
+                {lapInfo.team} · Lap {lapInfo.lapNum} · {lapInfo.raceName} {lapInfo.raceYear}
+              </div>
             </div>
             <div style={{ fontFamily: "'Space Mono'", fontSize: 7, color: "#666" }}>FASTEST LAP</div>
             <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 20, letterSpacing: 3, color: "#00D2BE" }}>{lapInfo.lapTime}</div>
@@ -234,8 +254,8 @@ export default function LapMapTab() {
             <div style={{ fontSize: 48, opacity: 0.3 }}>📡</div>
             <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 18, letterSpacing: 4, color: "#1a1a2e" }}>AWAITING TELEMETRY LOAD</div>
             <div style={{ fontFamily: "'Space Mono'", fontSize: 9, color: "#2a2a3a", textAlign: "center", lineHeight: 1.8 }}>
-              Press LOAD REAL TELEMETRY to fetch the actual fastest lap<br />
-              GPS coordinates, speed, throttle and brake from OpenF1
+              Press LOAD REAL TELEMETRY to fetch the fastest lap<br />
+              from the most recent completed race via OpenF1
             </div>
           </div>
         )}
@@ -248,9 +268,9 @@ export default function LapMapTab() {
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 480, flexDirection: "column", gap: 12 }}>
             <div style={{ fontSize: 36, opacity: 0.4 }}>⚠️</div>
             <div style={{ fontFamily: "'Space Mono'", fontSize: 9, color: "#ff4444", textAlign: "center", lineHeight: 1.8 }}>
-              OpenF1 may not have car_data for the 2026 Australian GP yet.<br />
-              Car telemetry data (speed/throttle/brake) becomes available<br />
-              shortly after the session ends. Try again later.
+              OpenF1 may be blocked (a live session is in progress) or<br />
+              car_data is not yet available for the most recent race.<br />
+              Try again after the session ends.
             </div>
           </div>
         )}
@@ -297,8 +317,8 @@ export default function LapMapTab() {
         {[
           ["TELEMETRY", "Real OpenF1 car_data (speed/throttle/brake/DRS)"],
           ["GPS",       "Real OpenF1 location (X/Y/Z at 3.7Hz)"],
+          ["SESSION",   "Most recently completed 2026 Race — auto-detected"],
           ["FASTEST LAP","Auto-detected from all laps in session"],
-          ["CACHE",     "Loaded once per session"],
           ["RENDER",    "HTML5 Canvas 2D, coloured by real data"],
         ].map(([k, v]) => (
           <div key={k} style={{ fontFamily: "'Space Mono'", fontSize: 7, color: "#333" }}>

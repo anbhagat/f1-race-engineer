@@ -50,7 +50,7 @@ export default function F1RaceEngineer() {
   const [telemetry,     setTelemetry]     = useState(null);
 
   // All live data fetching is encapsulated in this hook
-  const { liveResultsRef, liveStatus, liveCount, dataVersion } = useLiveData();
+  const { liveResultsRef, liveStatus, liveCount, dataVersion, reload } = useLiveData();
 
   // Rebuild season whenever the seed changes or fresh live data arrives
   useEffect(() => {
@@ -102,10 +102,11 @@ export default function F1RaceEngineer() {
         liveCount={liveCount}
         simSeed={simSeed}
         onResim={() => setSimSeed(s => s + 1)}
+        onRetry={reload}
       />
 
       <div style={{ padding: 18, overflowY: "auto", maxHeight: "calc(100vh - 66px)" }}>
-        {view === "dashboard"  && <DashboardView  seasonData={seasonData} liveCount={liveCount} selectedRound={selectedRound} />}
+        {view === "dashboard"  && <DashboardView  seasonData={seasonData} liveCount={liveCount} />}
         {view === "standings"  && <StandingsView  seasonData={seasonData} liveCount={liveCount} simSeed={simSeed} />}
         {view === "calendar"   && <CalendarView   seasonData={seasonData} selectedRound={selectedRound} onSelectRound={handleSelectRound} />}
         {view === "telemetry"  && telemetry && (

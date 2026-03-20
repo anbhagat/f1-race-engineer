@@ -7,7 +7,7 @@ const VIEWS = [
   { id: "engineer",   label: "🎙 ENGINEER"   },
 ];
 
-export default function Header({ view, setView, liveStatus, liveCount, simSeed, onResim }) {
+export default function Header({ view, setView, liveStatus, liveCount, simSeed, onResim, onRetry }) {
   return (
     <div style={{ background: "#0d0d15", borderBottom: "2px solid #00D2BE", padding: "10px 20px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
       {/* Brand */}
@@ -21,7 +21,7 @@ export default function Header({ view, setView, liveStatus, liveCount, simSeed, 
         </div>
         {/* Live status badge */}
         <div style={{
-          marginLeft: 10,
+          marginLeft: 10, display: "flex", alignItems: "center", gap: 6,
           background: liveStatus==="live"?"rgba(255,215,0,0.1)":liveStatus==="loading"?"rgba(0,210,190,0.08)":"rgba(100,100,100,0.1)",
           border: `1px solid ${liveStatus==="live"?"#FFD700":liveStatus==="loading"?"#00D2BE":"#555"}`,
           borderRadius: 4, padding: "3px 8px",
@@ -31,6 +31,11 @@ export default function Header({ view, setView, liveStatus, liveCount, simSeed, 
             : liveStatus==="loading" ? "⏳ FETCHING OPENF1..."
             : "⚠️ OFFLINE MODE"}
           </span>
+          {liveStatus === "offline" && (
+            <button onClick={onRetry} style={{ background: "none", border: "none", color: "#888", cursor: "pointer", fontFamily: "'Space Mono'", fontSize: 8, padding: 0, textDecoration: "underline" }}>
+              RETRY
+            </button>
+          )}
         </div>
       </div>
 

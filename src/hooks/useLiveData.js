@@ -2,9 +2,8 @@
 // Fetches all completed 2026 race and sprint results from OpenF1 on mount.
 // Returns a stable ref to the live results map plus loading state.
 //
-// Separating this logic from the main component means:
-//   • The component just reads state — it never orchestrates fetch sequences.
-//   • The hook can be independently tested by mocking the api/* functions.
+// Note: OpenF1 blocks unauthenticated access during live sessions. The app
+// gracefully falls back to fully simulated data during that window.
 
 import { useEffect, useRef, useState } from "react";
 import {
@@ -30,6 +29,13 @@ export function useLiveData() {
   const [liveCount,  setLiveCount]    = useState(0);
   // Incrementing this signals consumers to rebuild season data.
   const [dataVersion, setDataVersion] = useState(0);
+  // Incrementing this triggers a fresh fetch (used by the retry button).
+  const [fetchTick,   setFetchTick]   = useState(0);
+
+  const reload = () => {
+    setLiveStatus("loading");
+    setFetchTick(t => t + 1);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -86,7 +92,7 @@ export function useLiveData() {
 
     load();
     return () => { cancelled = true; };
-  }, []); // run once on mount
+  }, [fetchTick]); // re-runs when reload() is called
 
-  return { liveResultsRef, liveStatus, liveCount, dataVersion };
+  return { liveResultsRef, liveStatus, liveCount, dataVersion, reload };
 }

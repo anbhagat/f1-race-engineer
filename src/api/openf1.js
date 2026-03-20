@@ -1,6 +1,7 @@
 // ─── OpenF1 API Layer ─────────────────────────────────────────────────────────
-// All network calls to api.openf1.org live here. No auth required, free API,
-// results typically available within minutes of the chequered flag.
+// All network calls to api.openf1.org live here. No auth required for
+// historical data. Note: OpenF1 blocks unauthenticated access while any live
+// session is in progress; the app shows simulated data during that window.
 
 import { OPENF1_BASE, NUM_TO_ID, SPRINT_PTS, POINTS } from "../data/f1Data";
 import { CIRCUITS_2026 } from "../data/f1Data";
@@ -8,7 +9,7 @@ import { CIRCUITS_2026 } from "../data/f1Data";
 // ── Base fetch ────────────────────────────────────────────────────────────────
 export async function openf1Fetch(path) {
   try {
-    const r = await fetch(OPENF1_BASE + path);
+    const r = await fetch(OPENF1_BASE + path, { cache: "no-store" });
     if (!r.ok) return [];
     return await r.json();
   } catch {
@@ -19,12 +20,14 @@ export async function openf1Fetch(path) {
 // ── Session fetchers ──────────────────────────────────────────────────────────
 export async function fetchCompletedRaces() {
   const sessions = await openf1Fetch("/sessions?year=2026&session_name=Race");
+  if (!Array.isArray(sessions)) return [];
   const now = Date.now();
   return sessions.filter(s => new Date(s.date_end).getTime() < now);
 }
 
 export async function fetchCompletedSprints() {
   const sessions = await openf1Fetch("/sessions?year=2026&session_name=Sprint");
+  if (!Array.isArray(sessions)) return [];
   const now = Date.now();
   return sessions.filter(s => new Date(s.date_end).getTime() < now);
 }
@@ -41,11 +44,11 @@ export async function fetchSessionStints(sessionKey) {
 // Handles multi-country collisions (ESP has Barcelona + Madrid, USA has 3 venues).
 const LOCATION_HINTS = {
   "Melbourne":    0,  "Shanghai":    1,  "Suzuka":      2,  "Sakhir":      3,
-  "Jeddah":       4,  "Miami":       5,  "Monaco":      6,  "Barcelona":   7,
-  "Montreal":     8,  "Madrid":      9,  "Spielberg":  10,  "Silverstone": 11,
+  "Jeddah":       4,  "Miami":       5,  "Monte Carlo": 6,  "Barcelona":   7,
+  "Montréal":     8,  "Madrid":      9,  "Spielberg":  10,  "Silverstone": 11,
   "Spa":         12,  "Budapest":   13,  "Zandvoort":  14,  "Monza":       15,
-  "Baku":        16,  "Singapore":  17,  "Austin":     18,  "Mexico City": 19,
-  "São Paulo":   20,  "Las Vegas":  21,  "Lusail":     22,  "Yas Island":  23,
+  "Baku":        16,  "Marina Bay": 17,  "Austin":     18,  "Mexico City": 19,
+  "São Paulo":   20,  "Las Vegas":  21,  "Lusail":     22,  "Yas Marina":  23,
 };
 
 export function matchCircuitIndex(session) {

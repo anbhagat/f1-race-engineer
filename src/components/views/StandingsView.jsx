@@ -8,11 +8,16 @@ export default function StandingsView({ seasonData, liveCount, simSeed }) {
 
       {/* Driver standings */}
       <div className="card">
-        <div style={{ fontFamily: "'Bebas Neue'", fontSize: 18, letterSpacing: 4, color: "#00D2BE", marginBottom: 14 }}>
-          DRIVERS CHAMPIONSHIP 2026
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+          <div style={{ fontFamily: "'Bebas Neue'", fontSize: 18, letterSpacing: 4, color: "#00D2BE" }}>
+            PREDICTED DRIVERS CHAMPIONSHIP 2026
+          </div>
+          <span className="ab" style={{ background: "rgba(255,215,0,0.12)", color: "#FFD700", border: "1px solid #FFD70044" }}>
+            PREDICTED
+          </span>
         </div>
         <div style={{ fontFamily: "'Space Mono'", fontSize: 8, color: "#555", marginBottom: 10 }}>
-          {liveCount} live + R{liveCount+1}–R24 simulated (seed #{simSeed})
+          {liveCount} actual + R{liveCount+1}–R24 simulated (seed #{simSeed}) · for actual standings see Overview
         </div>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
@@ -57,8 +62,13 @@ export default function StandingsView({ seasonData, liveCount, simSeed }) {
 
       {/* Constructor standings */}
       <div className="card">
-        <div style={{ fontFamily: "'Bebas Neue'", fontSize: 18, letterSpacing: 4, color: "#00D2BE", marginBottom: 14 }}>
-          CONSTRUCTORS 2026
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+          <div style={{ fontFamily: "'Bebas Neue'", fontSize: 18, letterSpacing: 4, color: "#00D2BE" }}>
+            PREDICTED CONSTRUCTORS 2026
+          </div>
+          <span className="ab" style={{ background: "rgba(255,215,0,0.12)", color: "#FFD700", border: "1px solid #FFD70044" }}>
+            PREDICTED
+          </span>
         </div>
         {seasonData.constructorStandings.map((t, i) => {
           const max     = seasonData.constructorStandings[0].points;
